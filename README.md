@@ -56,7 +56,7 @@ uvicorn app.main:app --port 8005 --reload
 
 ## 🤖 Como usei IA no desenvolvimento (Requisito Obrigatório)
 
-Este projeto foi construído utilizando um fluxo de **Pair Programming de Próxima Geração**, aproveitando as capacidades do agente autônomo **Antigravity** (Google DeepMind). A maturidade no uso de ferramentas de IA foi um pilar central para atingir a robustez técnica do produto final.
+Este projeto foi construído utilizando um fluxo de **Desenvolvimento Orientado a Agentes AI**, aproveitando as capacidades do agente autônomo **Antigravity** (Google DeepMind). A integração de ferramentas de IA no ciclo de vida do software foi fundamental para garantir a agilidade e a precisão técnica das soluções implementadas.
 
 ### **Ferramentas Utilizadas**
 - **Orquestrador**: Antigravity Agent (Google DeepMind).
