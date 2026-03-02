@@ -1,0 +1,37 @@
+[project]
+name = "blis-ai-technical-test"
+version = "0.1.0"
+description = "Technical test for Blis AI - Multi-agent Travel Chatbot"
+authors = [
+    { name = "Your Name", email = "your.email@example.com" }
+]
+dependencies = [
+    "fastapi>=0.109.0",
+    "uvicorn>=0.27.0",
+    "langgraph>=0.0.26",
+    "langchain>=0.1.0",
+    "langchain-openai>=0.0.5",
+    "langchain-community>=0.0.13",
+    "langgraph-checkpoint-redis",
+    "chromadb>=0.4.22",
+    "pydantic-settings>=2.1.0",
+    "pypdf>=4.0.0",
+    "tavily-python>=0.3.0",
+    "python-multipart>=0.0.7",
+    "redis>=5.0.1",
+    "python-dotenv>=1.0.0",
+    "supabase>=2.3.0",
+    "psycopg2-binary>=2.9.9",
+    "pgvector>=0.2.5",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

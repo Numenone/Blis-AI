@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blis AI - Painel de Atendimento</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        :root {
+            --wa-bg: #efeae2;
+            --wa-header: #008069;
+            --wa-me: #dcf8c6;
+            --wa-ai: #ffffff;
+            --wa-text: #111b21;
+            --wa-secondary: #667781;
+            --wa-input-bg: #ffffff;
+            --wa-footer: #f0f2f5;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Inter', sans-serif;
+        }
+
+        body {
+            background-color: #dadbd3;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+
+        .app-container {
+            width: 100%;
+            max-width: 1000px;
+            height: 95vh;
+            background: var(--wa-bg);
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1);
+            position: relative;
+        }
+
+        /* Header */
+        header {
+            background-color: var(--wa-header);
+            color: white;
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            z-index: 10;
+        }
+
+        .avatar {
+            width: 40px;
+            height: 40px;
+            background: #fff;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-weight: bold;
+            color: var(--wa-header);
+            font-size: 1.2rem;
+        }
+
+        .header-info h1 {
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .header-info p {
+            font-size: 0.8rem;
+            opacity: 0.9;
+        }
+
+        /* Chat Area */
+        #chat-window {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            background-image: url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png');
+            background-repeat: repeat;
+            background-blend-mode: overlay;
+        }
+
+        .message {
+            max-width: 75%;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            line-height: 1.4;
+            position: relative;
+            box-shadow: 0 1px 0.5px rgba(0, 0, 0, 0.13);
+            word-wrap: break-word;
+        }
+
+        .message.me {
+            align-self: flex-end;
+            background-color: var(--wa-me);
+            border-top-right-radius: 0;
+        }
+
+        .message.ai {
+            align-self: flex-start;
+            background-color: var(--wa-ai);
+            border-top-left-radius: 0;
+        }
+
+        .message .time {
+            font-size: 0.7rem;
+            color: var(--wa-secondary);
+            text-align: right;
+            margin-top: 4px;
+        }
+
+        /* Markdown Styles */
+        .message p {
+            margin-bottom: 8px;
+        }
+
+        .message p:last-child {
+            margin-bottom: 0;
+        }
+
+        .message ul,
+        .message ol {
+            margin-left: 20px;
+            margin-bottom: 8px;
+        }
+
+        .message strong {
+            font-weight: 600;
+        }
+
+        .message code {
+            background-color: rgba(0, 0, 0, 0.05);
+            padding: 2px 4px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.85em;
+        }
+
+        .message a {
+            color: #0645ad;
+            text-decoration: none;
+        }
+
+        .message a:hover {
+            text-decoration: underline;
+        }
+
+        /* Input Area */
+        footer {
+            background-color: var(--wa-footer);
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .input-wrapper {
+            flex: 1;
+            background: white;
+            border-radius: 8px;
+            padding: 5px 12px;
+            display: flex;
+            align-items: center;
+        }
+
+        #message-input {
+            width: 100%;
+            border: none;
+            outline: none;
+            padding: 8px 0;
+            font-size: 0.95rem;
+        }
+
+        #send-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: var(--wa-secondary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #send-btn svg {
+            width: 24px;
+            height: 24px;
+        }
+
+        /* Auth Modal (Temporary for Dev) */
+        #auth-modal {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 24px;
+            border-radius: 12px;
+            width: 320px;
+            text-align: center;
+        }
+
+        input.auth-input {
+            width: 100%;
+            padding: 10px;
+            margin: 15px 0;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+        }
+
+        button.primary-btn {
+            background: var(--wa-header);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            width: 100%;
+        }
+
+        .typing {
+            font-style: italic;
+            color: var(--wa-secondary);
+            font-size: 0.8rem;
+            margin-bottom: 10px;
+            display: none;
+        }
+
+        .caret {
+            display: inline-block;
+            width: 2px;
+            height: 1.1em;
+            background-color: var(--wa-header);
+            margin-left: 1px;
+            vertical-align: middle;
+            animation: blink 0.7s infinite;
+        }
+
+        @keyframes blink {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="app-container">
+        <div id="auth-modal">
+            <div class="modal-content">
+                <h3>Autenticação</h3>
+                <p style="font-size: 0.8rem; color: #666; margin-top: 5px;">Insira sua X-API-Key para começar</p>
+                <input type="password" id="api-key-input" class="auth-input" placeholder="Sua chave..."
+                    value="blis_secret_token_123">
+                <button class="primary-btn" onclick="authenticate()">Entrar</button>
+            </div>
+        </div>
+
+        <header>
+            <div class="avatar">B</div>
+            <div class="header-info">
+                <h1>Blis AI Assistant</h1>
+                <p>Agente de Viagens (Online)</p>
+            </div>
+        </header>
+
+        <main id="chat-window">
+            <!-- Initial message will be handled by JS or kept simple -->
+            <div class="message ai">
+                <div class="markdown-content">
+                    <p>Olá! Sou o assistente da Blis AI. Como posso ajudar com sua viagem hoje?</p>
+                </div>
+                <div class="time">12:00</div>
+            </div>
+        </main>
+
+        <div id="typing-indicator" class="typing" style="padding: 0 20px;">Blis AI está escrevendo...</div>
+
+        <footer>
+            <div class="input-wrapper">
+                <input type="text" id="message-input" placeholder="Mensagem" autocomplete="off">
+            </div>
+            <button id="send-btn" onclick="sendMessage()">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M1.101 21.757L23.8 12.028 1.101 2.3l.011 7.912 13.623 1.816-13.623 1.817-.011 7.912z">
+                    </path>
+                </svg>
+            </button>
+        </footer>
+    </div>
+
+    <script>
+        marked.setOptions({
+            mangle: false,
+            headerIds: false
+        });
+        let apiKey = '';
+        const chatWindow = document.getElementById('chat-window');
+        const messageInput = document.getElementById('message-input');
+        const typingIndicator = document.getElementById('typing-indicator');
+        const sessionId = 'session_' + Math.random().toString(36).substr(2, 9);
+
+        function authenticate() {
+            apiKey = document.getElementById('api-key-input').value;
+            if (apiKey) {
+                document.getElementById('auth-modal').style.display = 'none';
+            }
+        }
+
+        function addMessage(text, side) {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${side}`;
+            const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            // Parse text as markdown immediately for non-streaming messages
+            msgDiv.innerHTML = `${marked.parse(text)}<div class="time">${time}</div>`;
+            chatWindow.appendChild(msgDiv);
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+            return msgDiv;
+        }
+
+        async function sendMessage() {
+            const text = messageInput.value.trim();
+            if (!text || !apiKey) return;
+
+            addMessage(text, 'me');
+            messageInput.value = '';
+
+            typingIndicator.style.display = 'block';
+
+            const aiMsgDiv = addMessage('', 'ai');
+            // Clear the default innerHTML since we'll use prepend
+            aiMsgDiv.innerHTML = `<div class="time">${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>`;
+
+            const contentSpan = document.createElement('div'); // Use div for blocks (p, ul, etc)
+            contentSpan.className = 'markdown-content';
+            const caretSpan = document.createElement('span');
+            caretSpan.className = 'caret';
+            aiMsgDiv.prepend(caretSpan);
+            aiMsgDiv.prepend(contentSpan);
+
+            let displayBuffer = '';
+            let isTyping = false;
+            const typingQueue = [];
+
+            const processQueue = () => {
+                if (typingQueue.length > 0 && !isTyping) {
+                    isTyping = true;
+                    const char = typingQueue.shift();
+                    displayBuffer += char;
+
+                    // Render markdown
+                    contentSpan.innerHTML = marked.parse(displayBuffer);
+
+                    // Function to find the deepest last element that can contain the caret
+                    const getDeepestLastChild = (parent) => {
+                        let last = parent.lastElementChild;
+                        if (!last) return parent;
+
+                        // Don't go into elements that shouldn't contain the caret or are empty
+                        if (['BR', 'HR', 'IMG'].includes(last.tagName)) return parent;
+
+                        return getDeepestLastChild(last);
+                    };
+
+                    // Attach caret to the deepest last element
+                    const target = getDeepestLastChild(contentSpan);
+                    target.appendChild(caretSpan);
+
+                    chatWindow.scrollTop = chatWindow.scrollHeight;
+
+                    const delay = Math.floor(Math.random() * 10) + 5;
+                    setTimeout(() => {
+                        isTyping = false;
+                        processQueue();
+                    }, delay);
+                } else if (typingQueue.length === 0 && !isTyping && streamEnded) {
+                    caretSpan.remove();
+                    typingIndicator.style.display = 'none';
+                }
+            };
+
+            let streamEnded = false;
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-API-Key': apiKey
+                    },
+                    body: JSON.stringify({
+                        session_id: sessionId,
+                        message: text,
+                        stream: true
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    contentSpan.innerHTML = `<span style="color: red;">Erro: ${error.detail || 'Falha na conexão'}</span>`;
+                    streamEnded = true;
+                    processQueue();
+                    return;
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const dataStr = line.slice(6).trim();
+                            if (dataStr === '[DONE]') {
+                                continue;
+                            }
+                            try {
+                                const data = JSON.parse(dataStr);
+                                if (data.content) {
+                                    // Add characters to the typing queue
+                                    for (const char of data.content) {
+                                        typingQueue.push(char);
+                                    }
+                                    processQueue();
+                                } else if (data.error) {
+                                    contentSpan.innerHTML = `<span style="color: red;">Erro: ${data.error}</span>`;
+                                }
+                            } catch (e) { }
+                        }
+                    }
+                }
+                streamEnded = true;
+                processQueue(); // Check if caret needs removal
+            } catch (err) {
+                contentSpan.innerHTML = `<span style="color: red;">Erro de rede: ${err.message}</span>`;
+                streamEnded = true;
+                processQueue();
+            }
+        }
+
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+    </script>
+
+</body>
+
+</html>
