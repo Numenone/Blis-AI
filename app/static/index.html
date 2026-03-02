@@ -386,6 +386,17 @@
         <div id="typing-indicator" class="typing" style="padding: 0 20px;">Blis AI está escrevendo...</div>
 
         <footer>
+            <button id="upload-btn" onclick="document.getElementById('file-input').click()"
+                title="Enviar documento (RAG)">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path
+                        d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48">
+                    </path>
+                </svg>
+            </button>
+            <input type="file" id="file-input" style="display: none;" accept=".pdf,.md"
+                onchange="handleFileUpload(this)">
             <div class="input-wrapper">
                 <input type="text" id="message-input" placeholder="Mensagem" autocomplete="off">
             </div>
@@ -396,7 +407,48 @@
                 </svg>
             </button>
         </footer>
+
+        <!-- Toast Status -->
+        <div id="status-toast"
+            style="display: none; position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%); background: #323232; color: white; padding: 8px 16px; border-radius: 20px; font-size: 0.85rem; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
+            <span id="status-text">Processando arquivo...</span>
+        </div>
     </div>
+
+    <!-- Additional CSS for upload -->
+    <style>
+        #upload-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: var(--wa-secondary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 5px;
+            transition: color 0.2s;
+        }
+
+        #upload-btn:hover {
+            color: var(--wa-header);
+        }
+
+        #upload-btn.loading {
+            animation: rotate 2s linear infinite;
+            color: var(--wa-header);
+            pointer-events: none;
+        }
+
+        @keyframes rotate {
+            from {
+                transform: rotate(0deg);
+            }
+
+            to {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
 
     <script>
         marked.setOptions({
@@ -619,6 +671,50 @@
                 contentSpan.innerHTML = `<span style="color: red;">Erro de rede: ${err.message}</span>`;
                 streamEnded = true;
                 processQueue();
+            }
+        }
+
+        async function handleFileUpload(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const uploadBtn = document.getElementById('upload-btn');
+            const statusToast = document.getElementById('status-toast');
+            const statusText = document.getElementById('status-text');
+
+            uploadBtn.classList.add('loading');
+            statusToast.style.display = 'block';
+            statusText.innerText = `Enviando ${file.filename || file.name}...`;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    headers: {
+                        'X-API-Key': apiKey
+                    },
+                    body: formData
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    statusText.innerText = `✓ ${result.message}`;
+                    setTimeout(() => { statusToast.style.display = 'none'; }, 3000);
+
+                    // Add a system-like message to the chat
+                    addMessage(`*Sistema: Novo documento "${file.name}" incluído no conhecimento da IA.*`, 'ai');
+                } else {
+                    statusText.innerText = `✗ Erro: ${result.detail || 'Falha no upload'}`;
+                    setTimeout(() => { statusToast.style.display = 'none'; }, 5000);
+                }
+            } catch (err) {
+                statusText.innerText = `✗ Erro de rede: ${err.message}`;
+                setTimeout(() => { statusToast.style.display = 'none'; }, 5000);
+            } finally {
+                uploadBtn.classList.remove('loading');
+                input.value = ''; // Reset input
             }
         }
 

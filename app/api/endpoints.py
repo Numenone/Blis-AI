@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Request, Depends
+from fastapi import APIRouter, HTTPException, Request, Depends, File, UploadFile
 from fastapi.responses import StreamingResponse
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
@@ -6,7 +6,9 @@ from langchain_core.messages import HumanMessage
 from app.agents.orchestrator import get_graph
 from app.core.config import settings
 import json
-
+import os
+import shutil
+import tempfile
 import logging
 
 router = APIRouter()
@@ -154,6 +156,70 @@ async def chat_endpoint(request: ChatRequest, fastapi_req: Request, api_key: str
     except Exception as e:
         logger.error(f"event=chat_invocation_error session_id={request.session_id} error={str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+@router.post("/api/upload", summary="Enviar documento para alimentar a IA (RAG)")
+async def upload_document(
+    fastapi_req: Request,
+    file: UploadFile = File(...),
+    api_key: str = Depends(verify_api_key)
+):
+    """Processa um arquivo (PDF ou MD) e adiciona ao banco de vetores."""
+    logger.info(f"event=upload_started filename={file.filename} content_type={file.content_type}")
+    
+    if not file.filename.lower().endswith(('.pdf', '.md')):
+        raise HTTPException(status_code=400, detail="Apenas arquivos .pdf e .md são suportados.")
+
+    temp_dir = tempfile.mkdtemp()
+    temp_path = os.path.join(temp_dir, file.filename)
+    
+    try:
+        with open(temp_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        # Import standard RAG tools
+        from langchain_community.document_loaders import PyPDFLoader, TextLoader
+        from langchain_text_splitters import RecursiveCharacterTextSplitter
+        from langchain_community.vectorstores import Chroma
+
+        if file.filename.lower().endswith(".pdf"):
+            loader = PyPDFLoader(temp_path)
+        else:
+            loader = TextLoader(temp_path, encoding="utf-8")
+
+        documents = loader.load()
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1000,
+            chunk_overlap=200,
+            separators=["\n### ", "\n## ", "\n# ", "\n\n", "\n", " ", ""]
+        )
+        docs = text_splitter.split_documents(documents)
+
+        embeddings = getattr(fastapi_req.app.state, "embeddings", None)
+        persist_directory = "data/chroma"
+
+        # Update Chroma
+        vectorstore = Chroma.from_documents(
+            documents=docs,
+            embedding=embeddings,
+            persist_directory=persist_directory
+        )
+
+        # Immediate refresh of the retriever in app state
+        fastapi_req.app.state.retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+
+        logger.info(f"event=upload_success filename={file.filename} chunks={len(docs)}")
+        return {
+            "status": "success",
+            "filename": file.filename,
+            "chunks": len(docs),
+            "message": f"Documento '{file.filename}' processado e integrado com sucesso!"
+        }
+
+    except Exception as e:
+        logger.error(f"event=upload_error filename={file.filename} error={str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro ao processar arquivo: {str(e)}")
+    finally:
+        shutil.rmtree(temp_dir)
+
 @router.get("/api/history/{session_id}")
 async def get_chat_history(session_id: str, fastapi_req: Request, api_key: str = Depends(verify_api_key)):
     checkpointer = getattr(fastapi_req.app.state, "checkpointer", None)
