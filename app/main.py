@@ -15,15 +15,14 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Connect to Redis
-    pool = redis.ConnectionPool.from_url(settings.redis_url)
-    redis_conn = redis.Redis(connection_pool=pool)
-    
     # Simple check to ensure Redis is available
     try:
-        redis_conn.ping()
+        # Use from_conn_string for better compatibility with current langgraph patterns
+        checkpointer = RedisSaver.from_conn_string(settings.redis_url)
+        # Verify connection
+        async with checkpointer.conn as conn:
+            await conn.ping()
         logger.info("Successfully connected to Redis.")
-        checkpointer = RedisSaver(redis_conn)
         app.state.checkpointer = checkpointer
     except Exception as e:
         logger.warning(f"Could not connect to Redis: {e}")
@@ -32,11 +31,6 @@ async def lifespan(app: FastAPI):
         app.state.checkpointer = MemorySaver()
         
     yield
-    try:
-        logger.info("Closing Redis connection.")
-        redis_conn.close()
-    except Exception:
-        pass
 
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, FileResponse
