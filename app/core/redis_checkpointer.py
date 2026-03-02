@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Any, AsyncIterator, Optional, Sequence, cast
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import (
@@ -11,6 +12,9 @@ from langgraph.checkpoint.base import (
     get_checkpoint_id,
 )
 import redis.asyncio as redis
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+
+logger = logging.getLogger(__name__)
 
 class AsyncStandardRedisSaver(BaseCheckpointSaver):
     """
@@ -22,6 +26,7 @@ class AsyncStandardRedisSaver(BaseCheckpointSaver):
     def __init__(self, connection: redis.Redis):
         super().__init__()
         self.redis = connection
+        self.serde = JsonPlusSerializer()
 
     def _make_checkpoint_key(self, thread_id: str, checkpoint_ns: str, checkpoint_id: str) -> str:
         return f"checkpoint:{thread_id}:{checkpoint_ns}:{checkpoint_id}"
@@ -33,13 +38,14 @@ class AsyncStandardRedisSaver(BaseCheckpointSaver):
         thread_id = config["configurable"]["thread_id"]
         checkpoint_ns = config["configurable"].get("checkpoint_ns", "")
         checkpoint_id = get_checkpoint_id(config)
-
+        
         if not checkpoint_id:
             # Get latest ID
             latest_key = self._make_latest_key(thread_id, checkpoint_ns)
             checkpoint_id = await self.redis.get(latest_key)
             if checkpoint_id:
                 checkpoint_id = checkpoint_id.decode() if isinstance(checkpoint_id, bytes) else checkpoint_id
+                logger.info(f"checkpointer.aget_tuple found_latest={checkpoint_id} for thread_id={thread_id}")
 
         if not checkpoint_id:
             return None
@@ -50,19 +56,10 @@ class AsyncStandardRedisSaver(BaseCheckpointSaver):
         if not data:
             return None
 
-        checkpoint = json.loads(data[b"checkpoint"].decode())
-        metadata = json.loads(data[b"metadata"].decode())
+        # Use JsonPlusSerializer for proper deserialization of messages
+        checkpoint = self.serde.loads(data[b"checkpoint"].decode())
+        metadata = self.serde.loads(data[b"metadata"].decode())
         parent_checkpoint_id = data.get(b"parent_id", b"").decode()
-
-        parent_config = None
-        if parent_checkpoint_id:
-            parent_config = {
-                "configurable": {
-                    "thread_id": thread_id,
-                    "checkpoint_ns": checkpoint_ns,
-                    "checkpoint_id": parent_checkpoint_id
-                }
-            }
 
         return CheckpointTuple(
             config={
@@ -74,7 +71,13 @@ class AsyncStandardRedisSaver(BaseCheckpointSaver):
             },
             checkpoint=checkpoint,
             metadata=metadata,
-            parent_config=parent_config
+            parent_config={
+                "configurable": {
+                    "thread_id": thread_id,
+                    "checkpoint_ns": checkpoint_ns,
+                    "checkpoint_id": parent_checkpoint_id
+                }
+            } if parent_checkpoint_id else None
         )
 
     async def alist(
@@ -127,16 +130,18 @@ class AsyncStandardRedisSaver(BaseCheckpointSaver):
         checkpoint_ns = config["configurable"].get("checkpoint_ns", "")
         checkpoint_id = checkpoint["id"]
         
+        logger.info(f"checkpointer.aput thread_id={thread_id} checkpoint_id={checkpoint_id}")
+        
         # Determine parent
         parent_id = config["configurable"].get("checkpoint_id")
         
         checkpoint_key = self._make_checkpoint_key(thread_id, checkpoint_ns, checkpoint_id)
         latest_key = self._make_latest_key(thread_id, checkpoint_ns)
         
-        # Store in Hash
+        # Store in Hash using JsonPlusSerializer
         await self.redis.hset(checkpoint_key, mapping={
-            "checkpoint": json.dumps(checkpoint),
-            "metadata": json.dumps(metadata),
+            "checkpoint": self.serde.dumps(checkpoint).decode(),
+            "metadata": self.serde.dumps(metadata).decode(),
             "parent_id": parent_id if parent_id else ""
         })
         

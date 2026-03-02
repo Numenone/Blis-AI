@@ -19,7 +19,8 @@ def get_react_agent(state: AgentState):
         model=model,
         temperature=0,
         api_key=api_key,
-        base_url=base_url
+        base_url=base_url,
+        streaming=True
     )
     search_tool = TavilySearchResults(max_results=3, tavily_api_key=settings.tavily_api_key)
     
@@ -29,7 +30,9 @@ def get_react_agent(state: AgentState):
         prompt=SEARCH_SYSTEM_PROMPT
     )
 
-def search_node(state: AgentState):
+from langchain_core.runnables import RunnableConfig
+
+async def search_node(state: AgentState, config: RunnableConfig):
     """Node to handle search queries using a ReAct agent."""
     messages = state["messages"]
     if not messages:
@@ -40,10 +43,21 @@ def search_node(state: AgentState):
     
     # Invoke the ReAct agent with the current conversation history
     react_agent = get_react_agent(state)
-    result = react_agent.invoke({"messages": messages})
+    result = await react_agent.ainvoke({"messages": messages}, config=config)
     
-    # Extract only the newly generated messages to append to the state
+    # Extract only the newly generated messages
     new_messages = result["messages"][len(messages):]
-    logger.info(f"event=search_node_completed generated_messages={len(new_messages)}")
     
-    return {"messages": new_messages}
+    # Filter to only get the final AIMessage (ignore ToolMessages and intermediate steps)
+    final_response = None
+    for m in reversed(new_messages):
+        if m.type == "ai" and m.content:
+            final_response = m
+            break
+            
+    if final_response:
+        logger.info(f"event=search_node_completed final_msg_len={len(final_response.content)}")
+        return {"messages": [final_response]}
+    
+    logger.warning("event=search_node_no_final_response")
+    return {"messages": []}

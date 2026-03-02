@@ -365,7 +365,16 @@
         </div>
 
         <main id="chat-window">
-            <!-- Initial message will be handled by JS or kept simple -->
+            <!-- Session info for debug -->
+            <div id="session-info"
+                style="font-size: 10px; color: #666; text-align: right; padding: 5px 15px; opacity: 0.5;">
+                Thread ID: <span id="display-session-id">...</span>
+                <button onclick="resetSession()"
+                    style="background: none; border: none; color: #ff4d4f; cursor: pointer; text-decoration: underline; margin-left: 10px;">Limpar
+                    Tudo</button>
+            </div>
+
+            <!-- Initial message -->
             <div class="message ai">
                 <div class="markdown-content">
                     <p>Olá! Sou o assistente da Blis AI. Como posso ajudar com sua viagem hoje?</p>
@@ -407,6 +416,13 @@
             sessionId = 'session_' + Math.random().toString(36).substr(2, 9);
             localStorage.setItem('chat-session-id', sessionId);
         }
+        document.getElementById('display-session-id').innerText = sessionId;
+
+        function resetSession() {
+            localStorage.removeItem('chat-session-id');
+            localStorage.removeItem('chat-api-key');
+            location.reload();
+        }
 
         // Load saved settings
         document.getElementById('llm-gateway').value = localStorage.getItem('llm-gateway') || 'https://openrouter.ai/api/v1';
@@ -417,6 +433,7 @@
         if (apiKey) {
             document.getElementById('auth-modal').style.display = 'none';
             document.getElementById('api-key-input').value = apiKey;
+            console.log('API Key carregada, buscando histórico para sessão:', sessionId);
             loadHistory();
         }
 
@@ -435,28 +452,48 @@
             if (apiKey) {
                 localStorage.setItem('chat-api-key', apiKey);
                 document.getElementById('auth-modal').style.display = 'none';
+                console.log('Autenticado com sucesso. Sessão:', sessionId);
                 loadHistory();
             }
         }
 
-        async function loadHistory() {
-            if (!sessionId || !apiKey) return;
+        async function checkHealth() {
             try {
-                const response = await fetch(`/history/${sessionId}`, {
+                const res = await fetch('/health');
+                if (res.ok) {
+                    const status = await res.json();
+                    console.log('Server health:', status);
+                }
+            } catch (e) { console.error('Health check failed', e); }
+        }
+        checkHealth();
+
+        async function loadHistory() {
+            if (!sessionId || !apiKey) {
+                console.log('loadHistory: skipping (no sessionId or apiKey)', { sessionId, apiKey });
+                return;
+            }
+            try {
+                const url = `/api/history/${sessionId}`;
+                console.log(`loadHistory: fetching ${url}...`);
+                const response = await fetch(url, {
                     headers: { 'X-API-Key': apiKey }
                 });
                 if (response.ok) {
                     const data = await response.json();
+                    console.log(`loadHistory: success, ${data.messages.length} messages received`);
                     if (data.messages && data.messages.length > 0) {
-                        // Clear welcome message if there is real history
                         chatWindow.innerHTML = '';
                         data.messages.forEach(msg => {
                             addMessage(msg.content, msg.role);
                         });
                     }
+                } else {
+                    const errorText = await response.text();
+                    console.error(`loadHistory: failed (${response.status})`, errorText);
                 }
             } catch (err) {
-                console.error('Erro ao carregar histórico:', err);
+                console.error('loadHistory: error', err);
             }
         }
 
@@ -518,20 +555,22 @@
 
             let streamEnded = false;
             try {
+                const payload = {
+                    session_id: sessionId,
+                    message: text,
+                    stream: true,
+                    llm_model: document.getElementById('llm-model').value,
+                    llm_gateway: document.getElementById('llm-gateway').value,
+                    llm_api_key: document.getElementById('llm-api-key').value
+                };
+                console.log('Sending request to /chat:', payload);
                 const response = await fetch('/chat', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'X-API-Key': apiKey
                     },
-                    body: JSON.stringify({
-                        session_id: sessionId,
-                        message: text,
-                        stream: true,
-                        llm_model: document.getElementById('llm-model').value,
-                        llm_gateway: document.getElementById('llm-gateway').value,
-                        llm_api_key: document.getElementById('llm-api-key').value
-                    })
+                    body: JSON.stringify(payload)
                 });
                 saveSettings();
 
@@ -545,26 +584,33 @@
 
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
+                let lineBuffer = '';
 
                 while (true) {
                     const { value, done } = await reader.read();
                     if (done) break;
 
-                    const chunk = decoder.decode(value);
-                    const lines = chunk.split('\n');
+                    lineBuffer += decoder.decode(value, { stream: true });
+                    const lines = lineBuffer.split('\n');
+                    lineBuffer = lines.pop();
 
                     for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            const dataStr = line.slice(6).trim();
-                            if (dataStr === '[DONE]') continue;
-                            try {
-                                const data = JSON.parse(dataStr);
-                                if (data.content) {
-                                    for (const char of data.content) typingQueue.push(char);
-                                    processQueue();
-                                }
-                            } catch (e) { }
+                        const trimmed = line.trim();
+                        if (!trimmed || !trimmed.startsWith('data: ')) continue;
+
+                        const dataStr = trimmed.slice(6).trim();
+                        if (dataStr === '[DONE]') {
+                            streamEnded = true;
+                            continue;
                         }
+
+                        try {
+                            const data = JSON.parse(dataStr);
+                            if (data.content) {
+                                for (const char of data.content) typingQueue.push(char);
+                                processQueue();
+                            }
+                        } catch (e) { }
                     }
                 }
                 streamEnded = true;

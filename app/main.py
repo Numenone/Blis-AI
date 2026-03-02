@@ -18,15 +18,42 @@ async def lifespan(app: FastAPI):
     # Connect to Redis using asyncio client
     try:
         from app.core.redis_checkpointer import AsyncStandardRedisSaver
+        from langchain_openai import OpenAIEmbeddings
+        from langchain_community.vectorstores import Chroma, SupabaseVectorStore
+        from supabase.client import Client, create_client
         
+        # 1. Initialize Redis Checkpointer
         connection = redis.from_url(settings.redis_url, decode_responses=False)
-        # Verify basic connectivity
         await connection.ping()
-        
-        # Use our custom saver that works on STANDARD Redis (no Search module needed)
-        checkpointer = AsyncStandardRedisSaver(connection)
+        app.state.checkpointer = AsyncStandardRedisSaver(connection)
         logger.info(f"Successfully connected to Standard Redis at {settings.redis_url}")
-        app.state.checkpointer = checkpointer
+        
+        # 2. Cache Embeddings (Heavy initialization)
+        embeddings = OpenAIEmbeddings(
+            model="openai/text-embedding-3-small",
+            api_key=settings.openrouter_api_key,
+            base_url="https://openrouter.ai/api/v1"
+        )
+        app.state.embeddings = embeddings
+        
+        # 3. Cache VectorStore/Retriever
+        retriever = None
+        if settings.supabase_url and settings.supabase_service_key:
+            supabase: Client = create_client(settings.supabase_url, settings.supabase_service_key)
+            vectorstore = SupabaseVectorStore(
+                client=supabase,
+                embedding=embeddings,
+                table_name="documents",
+                query_name="match_documents"
+            )
+            retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+            logger.info("Retriever initialized (Supabase)")
+        elif os.path.exists("data/chroma"):
+            vectorstore = Chroma(persist_directory="data/chroma", embedding_function=embeddings)
+            retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+            logger.info("Retriever initialized (Chroma)")
+        
+        app.state.retriever = retriever
         
         yield
         
@@ -35,15 +62,18 @@ async def lifespan(app: FastAPI):
             await connection.aclose()
             
     except Exception as e:
-        logger.warning(f"Could not connect to Redis at {settings.redis_url}: {e}")
+        logger.warning(f"Error during lifespan initialization: {e}")
         from langgraph.checkpoint.memory import MemorySaver
         app.state.checkpointer = MemorySaver()
-        logger.info("Falling back to MemorySaver for session persistence.")
+        app.state.embeddings = None
+        app.state.retriever = None
         yield
 
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, FileResponse
 import os
+
+from app.core.redis_checkpointer import AsyncStandardRedisSaver
 
 app = FastAPI(
     title="Blis AI - Multi-agent Travel Chatbot",
@@ -51,6 +81,23 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+@app.get("/health")
+async def health_check():
+    checkpointer = getattr(app.state, "checkpointer", None)
+    return {
+        "status": "ok",
+        "redis_connected": isinstance(checkpointer, AsyncStandardRedisSaver),
+        "checkpointer_type": str(type(checkpointer))
+    }
+
+@app.get("/painel")
+async def get_painel():
+    static_file = os.path.join(os.path.dirname(__file__), "static", "index.html")
+    return FileResponse(static_file)
+
+# Include API Routes
+app.include_router(api_router)
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
@@ -102,9 +149,4 @@ async def log_requests(request: Request, call_next):
     )
     return response
 
-@app.get("/painel")
-async def get_painel():
-    static_file = os.path.join(os.path.dirname(__file__), "static", "index.html")
-    return FileResponse(static_file)
-
-app.include_router(api_router)
+    return response

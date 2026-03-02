@@ -49,11 +49,25 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response: str = Field(..., description="The AI's generated response (only used when stream=false).")
 
-async def generate_chat_stream(request: ChatRequest, checkpointer):
+async def generate_chat_stream(request: ChatRequest, fastapi_req: Request, checkpointer):
     """Generator for Server-Sent Events (SSE)."""
     logger.info(f"event=sse_stream_started session_id={request.session_id}")
     graph = get_graph(checkpointer)
-    config = {"configurable": {"thread_id": request.session_id}}
+    
+    # Get cached components from app state
+    retriever = getattr(fastapi_req.app.state, "retriever", None)
+    embeddings = getattr(fastapi_req.app.state, "embeddings", None)
+    
+    config = {
+        "configurable": {
+            "thread_id": request.session_id,
+            "retriever": retriever,
+            "embeddings": embeddings
+        }
+    }
+    
+    # 1. IMMEDIATE FEEDBACK: Send a placeholder to reduce perceived latency
+    yield f"data: {json.dumps({'content': 'Buscando informações...'})}\n\n"
     
     try:
         initial_state = {
@@ -67,6 +81,9 @@ async def generate_chat_stream(request: ChatRequest, checkpointer):
             config=config,
             version="v2"
         ):
+            # logger.debug(f"event={event['event']} name={event.get('name')}")
+            
+            # Filter: only stream from agent nodes
             if event["event"] == "on_chat_model_stream":
                 node_name = event.get("metadata", {}).get("langgraph_node", "")
                 if node_name in ["faq_agent", "search_agent", "agent"]:
@@ -74,6 +91,10 @@ async def generate_chat_stream(request: ChatRequest, checkpointer):
                     if chunk:
                         data = json.dumps({"content": chunk})
                         yield f"data: {data}\n\n"
+            
+            # Diagnostic logs
+            elif event["event"] == "on_node_start":
+                logger.debug(f"node_started={event.get('name') or event.get('metadata', {}).get('langgraph_node')}")
         
         logger.info(f"event=sse_stream_completed session_id={request.session_id}")
         yield "data: [DONE]\n\n"
@@ -86,36 +107,33 @@ async def generate_chat_stream(request: ChatRequest, checkpointer):
     "/chat", 
     response_model=ChatResponse,
     summary="Interagir com os Agentes de Viagem (FAQ & Search)",
-    description="""
-    Envia uma mensagem para o Orquestrador da Blis AI.
-    
-    O orquestrador pode escolher entre:
-    - **FAQ Agent**: Para responder dúvidas sobre políticas de bagagem usando a base de conhecimento (RAG).
-    - **Search Agent**: Para buscar informações em tempo real na internet (Tavily).
-    
-    **Como testar aqui no Swagger**:
-    1. Clique no botão "Authorize" no topo da página e insira a sua API Key (padrão: `blis_secret_token_123`).
-    2. Clique em "Try it out".
-    3. O body (`ChatRequest`) já estará preenchido com um exemplo de payload.
-    4. Digite a sua pergunta no campo `message`. 
-    5. Se quiser testar o Node de Web Search, digite por exemplo "Qual o clima em Paris hoje?".
-    6. Se quiser testar o RAG, use "Quais as regras de check-in?".
-    7. (Opcional) Altere `"stream": true` se o seu cliente suportar SSE.
-    """
 )
 async def chat_endpoint(request: ChatRequest, fastapi_req: Request, api_key: str = Depends(verify_api_key)):
+    logger.info(f"chat_endpoint: session_id={request.session_id} message='{request.message[:30]}...'")
+    checkpointer = getattr(fastapi_req.app.state, "checkpointer", None)
+    logger.info(f"chat_endpoint: session_id={request.session_id} cp_type={type(checkpointer)}")
+    
+    # Get cached components from app state for non-streaming case
+    retriever = getattr(fastapi_req.app.state, "retriever", None)
+    embeddings = getattr(fastapi_req.app.state, "embeddings", None)
+
     try:
-        checkpointer = fastapi_req.app.state.checkpointer
         if request.stream:
             return StreamingResponse(
-                generate_chat_stream(request, checkpointer),
+                generate_chat_stream(request, fastapi_req, checkpointer),
                 media_type="text/event-stream"
             )
 
         logger.info(f"event=chat_invocation_started session_id={request.session_id}")
         graph = get_graph(checkpointer)
         
-        config = {"configurable": {"thread_id": request.session_id}}
+        config = {
+            "configurable": {
+                "thread_id": request.session_id,
+                "retriever": retriever,
+                "embeddings": embeddings
+            }
+        }
         
         # Invoke graph asynchronously
         initial_state = {
@@ -136,35 +154,46 @@ async def chat_endpoint(request: ChatRequest, fastapi_req: Request, api_key: str
     except Exception as e:
         logger.error(f"event=chat_invocation_error session_id={request.session_id} error={str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-@router.get("/history/{session_id}")
+@router.get("/api/history/{session_id}")
 async def get_chat_history(session_id: str, fastapi_req: Request, api_key: str = Depends(verify_api_key)):
+    checkpointer = getattr(fastapi_req.app.state, "checkpointer", None)
+    logger.info(f"get_chat_history: session_id={session_id} cp_type={type(checkpointer)}")
     try:
-        checkpointer = fastapi_req.app.state.checkpointer
         config = {"configurable": {"thread_id": session_id}}
-        
-        # Get the latest state from checkpointer
         state_tuple = await checkpointer.aget_tuple(config)
         
         if not state_tuple:
+            logger.info(f"event=history_not_found session_id={session_id}")
             return {"messages": []}
             
-        messages = state_tuple.checkpoint.get("channel_values", {}).get("messages", [])
+        checkpoint = state_tuple.checkpoint
+        channel_values = checkpoint.get("channel_values", {})
+        messages = channel_values.get("messages", [])
+        
+        logger.info(f"event=history_found session_id={session_id} msg_count={len(messages)} channels={list(channel_values.keys())}")
         
         # Format messages for frontend
         formatted_messages = []
         for msg in messages:
-            # Handle different message types (HumanMessage, AIMessage, or Dict)
             content = ""
             role = "ai"
+            msg_type = ""
             
             if hasattr(msg, "content"):
                 content = msg.content
-                role = "me" if msg.type == "human" else "ai"
+                msg_type = msg.type
             elif isinstance(msg, dict):
                 content = msg.get("content", "")
-                # LangGraph serializes messages as dicts with 'type'
-                role = "me" if msg.get("type") == "human" else "ai"
+                msg_type = msg.get("type", "")
             
+            # Filter: only show human and AI messages, skip tools/system
+            if msg_type == "human":
+                role = "me"
+            elif msg_type == "ai":
+                role = "ai"
+            else:
+                continue # Skip ToolMessage, etc.
+
             if content:
                 formatted_messages.append({"role": role, "content": content})
                 

@@ -24,7 +24,8 @@ def get_llm(state: AgentState):
         model=model,
         temperature=0,
         api_key=api_key,
-        base_url=base_url
+        base_url=base_url,
+        streaming=True
     )
 
 class RouteDecision(BaseModel):
@@ -34,10 +35,12 @@ class RouteDecision(BaseModel):
 
 router_prompt = ChatPromptTemplate.from_messages([
     ("system", ROUTER_SYSTEM_PROMPT),
-    ("human", "{question}")
+    ("human", "{question}"),
 ])
 
-def route_question(state: AgentState):
+from langchain_core.runnables import RunnableConfig
+
+async def route_question(state: AgentState, config: RunnableConfig):
     """Router node that decides which agent to call next."""
     messages = state["messages"]
     if not messages:
@@ -49,7 +52,7 @@ def route_question(state: AgentState):
     
     llm = get_llm(state)
     router_chain = router_prompt | llm.with_structured_output(RouteDecision)
-    decision = router_chain.invoke({"question": question})
+    decision = await router_chain.ainvoke({"question": question}, config=config)
     
     logger.info(f"event=router_decision destination={decision.destination}")
     return {"next_node": decision.destination}
