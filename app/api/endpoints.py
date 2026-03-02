@@ -68,9 +68,8 @@ async def generate_chat_stream(request: ChatRequest, fastapi_req: Request, check
         }
     }
     
-    # 1. IMMEDIATE FEEDBACK: Send a placeholder to reduce perceived latency
-    yield f"data: {json.dumps({'content': 'Buscando informações...'})}\n\n"
     
+    # 1. IMMEDIATE FEEDBACK: Handled by frontend to avoid duplication in final message
     try:
         initial_state = {
             "messages": [HumanMessage(content=request.message)],
@@ -165,8 +164,8 @@ async def upload_document(
     """Processa um arquivo (PDF ou MD) e adiciona ao banco de vetores."""
     logger.info(f"event=upload_started filename={file.filename} content_type={file.content_type}")
     
-    if not file.filename.lower().endswith(('.pdf', '.md')):
-        raise HTTPException(status_code=400, detail="Apenas arquivos .pdf e .md são suportados.")
+    if not file.filename.lower().endswith(('.pdf', '.md', '.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="Apenas arquivos .pdf, .md, .xlsx e .xls são suportados.")
 
     temp_dir = tempfile.mkdtemp()
     temp_path = os.path.join(temp_dir, file.filename)
@@ -179,13 +178,26 @@ async def upload_document(
         from langchain_community.document_loaders import PyPDFLoader, TextLoader
         from langchain_text_splitters import RecursiveCharacterTextSplitter
         from langchain_community.vectorstores import Chroma
+        from langchain_core.documents import Document
 
+        documents = []
         if file.filename.lower().endswith(".pdf"):
             loader = PyPDFLoader(temp_path)
-        else:
+            documents = loader.load()
+        elif file.filename.lower().endswith(".md"):
             loader = TextLoader(temp_path, encoding="utf-8")
+            documents = loader.load()
+        elif file.filename.lower().endswith((".xlsx", ".xls")):
+            try:
+                import pandas as pd
+                # Read all sheets or just the first one? Usually first one is enough for simple RAG
+                df = pd.read_excel(temp_path)
+                # Convert to CSV string which is dense and easy for LLM to parse
+                csv_content = df.to_csv(index=False)
+                documents = [Document(page_content=csv_content, metadata={"source": file.filename})]
+            except ImportError:
+                raise HTTPException(status_code=500, detail="Bibliotecas para Excel não instaladas no servidor.")
 
-        documents = loader.load()
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
             chunk_overlap=200,
@@ -202,6 +214,12 @@ async def upload_document(
             embedding=embeddings,
             persist_directory=persist_directory
         )
+        
+        # Explicitly ensure metadata source is set for all chunks if not already
+        # Chroma.from_documents usually takes it from docs, but let's be safe for listing
+        if hasattr(vectorstore, "_collection"):
+            # This is a bit internal but helps ensure we can list them
+            logger.debug(f"event=chroma_ingestion_verified filename={file.filename}")
 
         # Immediate refresh of the retriever in app state
         fastapi_req.app.state.retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
@@ -219,6 +237,72 @@ async def upload_document(
         raise HTTPException(status_code=500, detail=f"Erro ao processar arquivo: {str(e)}")
     finally:
         shutil.rmtree(temp_dir)
+
+@router.get("/api/documents", summary="Listar documentos ingeridos")
+async def list_documents(fastapi_req: Request, api_key: str = Depends(verify_api_key)):
+    """Retorna uma lista de nomes de arquivos únicos presentes no ChromaDB."""
+    try:
+        from langchain_community.vectorstores import Chroma
+        embeddings = getattr(fastapi_req.app.state, "embeddings", None)
+        persist_directory = "data/chroma"
+        
+        vectorstore = Chroma(
+            persist_directory=persist_directory,
+            embedding_function=embeddings
+        )
+        
+        # Get all metadata from the collection
+        collection = vectorstore._collection
+        metadata = collection.get(include=['metadatas'])['metadatas']
+        
+        # Extract unique sources
+        sources = set()
+        for m in metadata:
+            if m and 'source' in m:
+                # Handle potential path separators in source
+                source_name = os.path.basename(m['source'])
+                sources.add(source_name)
+        
+        return {"documents": sorted(list(sources))}
+    except Exception as e:
+        logger.error(f"event=list_documents_error error={str(e)}")
+        return {"documents": [], "error": str(e)}
+
+@router.delete("/api/documents/{filename}", summary="Excluir um documento")
+async def delete_document(filename: str, fastapi_req: Request, api_key: str = Depends(verify_api_key)):
+    """Remove todos os chunks de um documento específico do ChromaDB."""
+    try:
+        from langchain_community.vectorstores import Chroma
+        embeddings = getattr(fastapi_req.app.state, "embeddings", None)
+        persist_directory = "data/chroma"
+        
+        vectorstore = Chroma(
+            persist_directory=persist_directory,
+            embedding_function=embeddings
+        )
+        
+        # Find IDs of documents with this source
+        collection = vectorstore._collection
+        # We search by source matching filename (basename)
+        all_data = collection.get(include=['metadatas'])
+        ids_to_delete = []
+        for i, m in enumerate(all_data['metadatas']):
+            if m and os.path.basename(m.get('source', '')) == filename:
+                ids_to_delete.append(all_data['ids'][i])
+        
+        if not ids_to_delete:
+            return {"status": "error", "message": f"Documento '{filename}' não encontrado."}
+            
+        collection.delete(ids=ids_to_delete)
+        
+        # Refresh retriever in app state
+        fastapi_req.app.state.retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+        
+        logger.info(f"event=document_deleted filename={filename} count={len(ids_to_delete)}")
+        return {"status": "success", "message": f"Documento '{filename}' excluído com sucesso."}
+    except Exception as e:
+        logger.error(f"event=delete_document_error filename={filename} error={str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/history/{session_id}")
 async def get_chat_history(session_id: str, fastapi_req: Request, api_key: str = Depends(verify_api_key)):

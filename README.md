@@ -19,10 +19,16 @@ O projeto foi construído utilizando **FastAPI** e **LangGraph**, seguindo um fl
 ## 🚀 Funcionalidades Principais
 
 *   **⚡ Latência Otimizada**: Utiliza cache de componentes (`app.state`) para Embeddings e VectorStores, eliminando o atraso de inicialização em cada mensagem.
-*   **🔵 Feedback Instantâneo**: Envio imediato de payload SSE ("Buscando informações...") para reduzir a latência percebida pelo usuário.
+*   **🔵 Feedback Instantâneo**: Streaming SSE inteligente que exibe "Buscando informações..." imediatamente enquanto o modelo processa a consulta.
 *   **💬 Painel de Atendimento Moderno**: Interface inspirada no WhatsApp com suporte a Markdown, animações suaves e persistência de sessão.
-*   **💾 Persistência Robusta**: Histórico de chat salvo no Redis, mantendo o contexto mesmo após reinicializações do servidor ou F5 na página.
-*   **🔒 Segurança Total**: Filtros contra vazamento de código, caminhos de sistema e *prompt injections*.
+    *   **Persistência em Redis**: Histórico de chat que sobrevive a recarregamentos de página.
+    *   **Caret Sincronizado**: Cursor de digitação inteligente que só aparece quando o conteúdo real começa a fluir.
+*   **📁 Ingestão e Gestão de Documentos (RAG Full)**: 
+    *   Upload de arquivos `.pdf`, `.md`, `.xlsx` e `.xls`.
+    *   **Painel de Gestão**: Interface para listar e excluir documentos do conhecimento da IA em tempo real.
+*   **🛡️ Robustez e Segurança**: 
+    *   Protocolo UNBREAKABLE de proteção contra Injeção de Prompt.
+    *   **UI Fail-Safe**: Tratamento de erros e validações no frontend para garantir que o chat nunca pare de responder.
 *   **⚙️ Configuração Dinâmica**: Troca de modelos (GPT-4, Claude), chaves de API e Gateways em tempo real pelo painel de configurações.
 
 ---
@@ -39,48 +45,31 @@ A API estará disponível em `http://localhost:8000`.
 ### 🐍 Nativamente (Desenvolvimento)
 1.  Instale as dependências: `pip install -e .`
 2.  Configure o arquivo `.env` (veja `.env.example`).
-3.  Inicie o servidor (utilize a porta 8005 para evitar conflitos comuns):
+3.  Inicie o servidor:
 ```bash
-uvicorn app.main:app --port 8005 --reload
+uvicorn app.main:app --port 8000 --reload
 ```
 
 ---
 
 ## 📖 Documentação da API
 
-*   **Swagger UI (`/docs`)**: Documentação interativa. Use a API Key padrão: `blis_secret_token_123`.
-*   **Chat History (`GET /api/history/{session_id}`)**: Recupera o histórico limpo da sessão (apenas mensagens Human/AI).
-*   **Chat Endpoint (`POST /chat`)**: Suporta streaming SSE para respostas em tempo real.
+*   **Swagger (`/docs`)**: Documentação interativa para teste de endpoints.
+*   **Gestão (`/api/documents`)**: Endpoints `GET` para listar e `DELETE` para remover fontes do RAG.
+*   **Histórico (`/api/history/{id}`)**: Recupera o contexto da conversa persistido no Redis.
 
 ---
 
 ## 🤖 Como usei IA no desenvolvimento (Requisito Obrigatório)
 
-Este projeto foi construído utilizando um fluxo de **Desenvolvimento Orientado a Agentes AI**, aproveitando as capacidades do agente autônomo **Antigravity** (Google DeepMind). A integração de ferramentas de IA no ciclo de vida do software foi fundamental para garantir a agilidade e a precisão técnica das soluções implementadas.
+Este projeto foi construído utilizando um fluxo de **Desenvolvimento Orientado a Agentes AI**, aproveitando as capacidades do agente autônomo **Antigravity** (Google DeepMind).
 
-### **Ferramentas Utilizadas**
-- **Orquestrador**: Antigravity Agent (Google DeepMind).
-- **Modelo de Linguagem**: OpenAI GPT-4o-mini (via gateway OpenRouter).
-
-### **MCPs (Model Context Protocol) e Capacidades Configuradas**
-A IA operou com acesso a ferramentas avançadas que permitiram uma compreensão profunda do projeto:
-- **`Filesystem`**: Utilizado para gerenciar a estrutura de diretórios, criar módulos do zero e realizar refatorações em larga escala (ex: conversão de síncrono para assíncrono em múltiplos arquivos).
-- **`Shell/Terminal`**: Execução proativa de comandos `uvicorn`, `git`, `redis-cli` e diagnósticos de rede (`netstat`) para resolver conflitos de porta e validar o estado do servidor em tempo real.
-- **`Knowledge Discovery`**: Acesso a base de conhecimento sobre padrões de projeto LangGraph, o que permitiu a implementação do `AsyncStandardRedisSaver` quando o checkpointer nativo falhou em ambientes padrão.
-- **`Web Browser/Search`**: Utilizado para consultar a documentação de última hora da LangChain e Tavily, garantindo o uso de APIs atualizadas.
-
-### **Exemplos Reais de Apoio da IA**
-1.  **Debug de Streaming SSE**: A IA analisou logs de rede e identificou que o `orchestrator` estava enviando eventos de "raciocínio interno" para o stream. Ela projetou e implementou um filtro de metadados (`metadata.get("langgraph_node")`) para limpar a interface do usuário.
-2.  **Refatoração Arquitetural**: Ao notar que o streaming não funcionava "token-a-token", a IA propôs e executou a transformação de todos os nodos do grafo em funções `async`, injetando corretamente o `RunnableConfig` para permitir a propagação de eventos.
-3.  **Otimização de Latência (Gargalo de Embeddings)**: Através da análise de tempos de resposta, a IA identificou que recriar o `OpenAIEmbeddings` em cada requisição custava ~1.5s. Ela sugeriu e implementou o cache no `app.state` do FastAPI (lifespan).
-4.  **Resiliência de Persistência**: Quando o Redis local falhou por falta do módulo RediSearch, a IA escreveu um adaptador customizado usando comandos `HSET/SCAN` puros, garantindo que o projeto funcionasse em qualquer infraestrutura.
-
-### **Intervenções e Lógica Humana vs. IA**
-- **O que funcionou bem**: A geração de boilerplates, lógica de persistência e a interface visual inspirada no WhatsApp foram quase 100% conduzidas pela IA sob minha supervisão.
-- **Correções Manuais e Decisões de Design**:
-    - **Refinamento de Tom**: Ajustei manualmente o `GUARDIAN_PROTOCOL` para ser mais amigável e permitir temas específicos (clima/tempo) que a IA estava bloqueando por excesso de zelo.
-    - **UX de Latência**: Tomei a decisão de design de enviar uma mensagem imediata "Buscando informações..." via SSE, uma técnica de *optimistic UI* que a IA implementou seguindo minha orientação para melhorar a percepção de velocidade.
-    - **Ordem de Docker**: Ajustei a ordem das camadas do `Dockerfile` manualmente para garantir que mudanças no `README.md` não invalidassem o cache de instalação de dependências Python.
+### **Destaques da Colaboração IA**
+1.  **Arquitetura Redis Customizada**: A IA projetou e implementou o `AsyncStandardRedisSaver` do zero para garantir persistência sem depender de módulos Redis corporativos caros.
+2.  **Sistema de Gestão RAG**: A IA criou toda a esteira de deleção de documentos, localizando chunks no ChromaDB baseados em metadados de arquivo para permitir uma limpeza seletiva do conhecimento.
+3.  **UX de Streaming**: Implementação de um sistema de fila (`typingQueue`) no frontend para garantir que o Markdown seja renderizado suavemente enquanto os tokens chegam, mantendo o scroll sempre no lugar correto.
+4.  **Resiliência de UI**: Após detectar falhas silenciosas de script, a IA implementou um sistema de *defensive programming* no frontend, garantindo que mesmo falhas de rede não travem a interface do usuário.
+5.  **Caret Inteligente**: Lógica customizada para sincronizar o cursor de digitação (`caret`) apenas com o fluxo real de dados, ocultando-o durante estados de carregamento.
 
 ---
 
