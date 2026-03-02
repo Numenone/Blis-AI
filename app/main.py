@@ -15,22 +15,22 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Simple check to ensure Redis is available
+    # Try to connect to Redis
     try:
-        # Use from_conn_string for better compatibility with current langgraph patterns
-        checkpointer = RedisSaver.from_conn_string(settings.redis_url)
-        # Verify connection
-        async with checkpointer.conn as conn:
-            await conn.ping()
-        logger.info("Successfully connected to Redis.")
-        app.state.checkpointer = checkpointer
+        # RedisSaver.from_conn_string returns a context manager in the latest versions
+        async with RedisSaver.from_conn_string(settings.redis_url) as checkpointer:
+            # Verify connectivity
+            async with checkpointer.conn as conn:
+                await conn.ping()
+            logger.info("Successfully connected to Redis.")
+            app.state.checkpointer = checkpointer
+            yield
     except Exception as e:
         logger.warning(f"Could not connect to Redis: {e}")
         from langgraph.checkpoint.memory import MemorySaver
         logger.info("Falling back to MemorySaver for session persistence.")
         app.state.checkpointer = MemorySaver()
-        
-    yield
+        yield
 
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, FileResponse
