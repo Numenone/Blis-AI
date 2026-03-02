@@ -40,7 +40,7 @@ class ChatRequest(BaseModel):
                     "llm_model": "openai/gpt-4o-mini",
                     "llm_gateway": "https://openrouter.ai/api/v1",
                     "llm_api_key": "sk-or-your-key-here",
-                    "stream": false
+                    "stream": False
                 }
             ]
         }
