@@ -12,6 +12,7 @@ O projeto foi construído utilizando **FastAPI** e **LangGraph**, seguindo um fl
 2.  **FAQ Agent (RAG)**: Especialista em políticas de bagagem e documentação. Utiliza **RAG (Retrieval-Augmented Generation)** com uma base de dados vetorial (**ChromaDB**) para garantir que as informações sejam oficiais e precisas.
 3.  **Search Agent (Web Search)**: Integrado com a API **Tavily**, este agente busca na internet dados atualizados sobre preços, conexões e condições climáticas.
 4.  **Guardian Protocol**: Uma camada de segurança robusta aplicada nos prompts de todos os agentes para evitar *prompt injection* e garantir que a IA se mantenha estritamente no domínio de viagens.
+5.  **OpenRouter Integration**: O projeto utiliza o **OpenRouter** como gateway unificado para acessar modelos de linguagem de ponta (como GPT-4o e Claude), garantindo flexibilidade e facilidade de troca de modelos.
 
 ---
 

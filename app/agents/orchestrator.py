@@ -13,6 +13,7 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Provedor de LLM via OpenRouter (para unificar acesso a modelos como GPT-4o, Claude, etc)
 llm = ChatOpenAI(
     model="openai/gpt-4o-mini", 
     temperature=0,

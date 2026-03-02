@@ -11,6 +11,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Embeddings via OpenRouter
 embeddings = OpenAIEmbeddings(
     model="openai/text-embedding-3-small",
     api_key=settings.openrouter_api_key,
@@ -36,6 +37,7 @@ def get_retriever():
     
     return None
 
+# LLM via OpenRouter
 llm = ChatOpenAI(
     model="openai/gpt-4o-mini", 
     temperature=0,

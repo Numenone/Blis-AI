@@ -9,7 +9,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Initialize LLM and tools
+# Initialize LLM via OpenRouter and tools
 llm = ChatOpenAI(
     model="openai/gpt-4o-mini", 
     temperature=0,
