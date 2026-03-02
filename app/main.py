@@ -1,7 +1,7 @@
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
-from langgraph.checkpoint.redis import RedisSaver
+from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 import redis.asyncio as redis
 from app.api.endpoints import router as api_router
 from app.core.config import settings
@@ -18,22 +18,37 @@ async def lifespan(app: FastAPI):
     # Connect to Redis using asyncio client
     try:
         connection = redis.from_url(settings.redis_url, decode_responses=False)
-        # Verify connection
+        # Verify basic connectivity
         await connection.ping()
-        logger.info("Successfully connected to Redis (Async).")
         
-        checkpointer = RedisSaver(connection)
-        app.state.checkpointer = checkpointer
-        
+        # Initialize AsyncRedisSaver (requires Redis Stack/RediSearch)
+        checkpointer = AsyncRedisSaver(redis_client=connection)
+        try:
+            await checkpointer.setup()
+            logger.info("Successfully connected to Redis Stack (Search enabled).")
+            app.state.checkpointer = checkpointer
+        except Exception as e:
+            if "unknown command" in str(e).lower() and "FT." in str(e).upper():
+                logger.warning("Redis found, but missing 'RediSearch' module. Sessions will not persist across restarts.")
+                logger.info("TIP: To enable persistence, install 'Redis Stack' instead of standard Redis.")
+            else:
+                logger.warning(f"Redis checkpointer setup failed: {e}")
+            
+            from langgraph.checkpoint.memory import MemorySaver
+            app.state.checkpointer = MemorySaver()
+            logger.info("Falling back to MemorySaver for session persistence.")
+            
         yield
         
-        logger.info("Closing Redis connection.")
-        await connection.aclose()
+        if hasattr(app.state, "checkpointer") and not isinstance(app.state.checkpointer, MemorySaver):
+            logger.info("Closing Redis connection.")
+            await connection.aclose()
+            
     except Exception as e:
-        logger.warning(f"Could not connect to Redis: {e}")
+        logger.warning(f"Could not connect to Redis at {settings.redis_url}: {e}")
         from langgraph.checkpoint.memory import MemorySaver
-        logger.info("Falling back to MemorySaver for session persistence.")
         app.state.checkpointer = MemorySaver()
+        logger.info("Falling back to MemorySaver for session persistence.")
         yield
 
 from fastapi.exceptions import RequestValidationError

@@ -22,7 +22,7 @@ O projeto foi construído utilizando **FastAPI** e **LangGraph**, seguindo um fl
 *   **💬 Painel de Atendimento (`/painel`)**: Interface moderna inspirada no WhatsApp, com suporte completo a **Markdown**, links clicáveis e uma animação de digitação humana com cursor interativo.
 *   **⚡ Streaming de Respostas (SSE)**: As respostas são geradas caractere por caractere, reduzindo a latência percebida e tornando a interação mais dinâmica.
 *   **🔒 Segurança de Elite**: Autenticação via `X-API-Key` e proteção contra vazamento de dados internos de código ou arquivos.
-*   **💾 Persistência com Redis**: Histórico de chat persistente utilizando o checkpointer nativo do LangGraph com Redis. (Possui fallback automático para memória RAM caso o Redis não esteja disponível).
+*   **💾 Persistência com Redis Stack**: Histórico de chat persistente utilizando o checkpointer nativo do LangGraph com [Redis Stack](https://redis.io/docs/latest/operate/oss_and_stack/install/install-stack/) (Necessário para persistência de sessões com RediSearch). (Possui fallback automático para memória RAM caso o Redis não esteja disponível).
 *   **🐳 Dockerizado**: Pronto para rodar em containers com builds otimizados e healthchecks de serviços.
 
 ---
