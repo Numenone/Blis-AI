@@ -43,6 +43,8 @@ Este projeto não foi apenas "escrito", ele foi **orquestrado** em uma parceria 
 ### **Minha Ferramenta de Trabalho**
 Utilizei o **Antigravity**, um agente autônomo de codificação de última geração (projeto da Google DeepMind). Diferente de um simples preenchimento automático, o Antigravity atua como um parceiro de pair programming que entende o contexto global do projeto.
 
+É possível trocar o modelo da LLM e o Gateway direto pelo painel ou pelo endpoint, on-live!
+
 *   **Modelo**: GPT-4o-mini (da OpenAI).
 *   **Gateway**: OpenRouter (escolhido pela versatilidade e estabilidade).
 
