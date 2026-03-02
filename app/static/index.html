@@ -394,17 +394,31 @@
             mangle: false,
             headerIds: false
         });
-        let apiKey = '';
+
+        let apiKey = localStorage.getItem('chat-api-key') || '';
         const chatWindow = document.getElementById('chat-window');
         const messageInput = document.getElementById('message-input');
         const typingIndicator = document.getElementById('typing-indicator');
         const settingsPanel = document.getElementById('settings-panel');
-        const sessionId = 'session_' + Math.random().toString(36).substr(2, 9);
+
+        // Persistent Session ID
+        let sessionId = localStorage.getItem('chat-session-id');
+        if (!sessionId) {
+            sessionId = 'session_' + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem('chat-session-id', sessionId);
+        }
 
         // Load saved settings
         document.getElementById('llm-gateway').value = localStorage.getItem('llm-gateway') || 'https://openrouter.ai/api/v1';
         document.getElementById('llm-model').value = localStorage.getItem('llm-model') || 'openai/gpt-4o-mini';
         document.getElementById('llm-api-key').value = localStorage.getItem('llm-api-key') || '';
+
+        // Auto-auth if key exists
+        if (apiKey) {
+            document.getElementById('auth-modal').style.display = 'none';
+            document.getElementById('api-key-input').value = apiKey;
+            loadHistory();
+        }
 
         function toggleSettings() {
             settingsPanel.style.display = settingsPanel.style.display === 'flex' ? 'none' : 'flex';
@@ -419,7 +433,30 @@
         function authenticate() {
             apiKey = document.getElementById('api-key-input').value;
             if (apiKey) {
+                localStorage.setItem('chat-api-key', apiKey);
                 document.getElementById('auth-modal').style.display = 'none';
+                loadHistory();
+            }
+        }
+
+        async function loadHistory() {
+            if (!sessionId || !apiKey) return;
+            try {
+                const response = await fetch(`/history/${sessionId}`, {
+                    headers: { 'X-API-Key': apiKey }
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.messages && data.messages.length > 0) {
+                        // Clear welcome message if there is real history
+                        chatWindow.innerHTML = '';
+                        data.messages.forEach(msg => {
+                            addMessage(msg.content, msg.role);
+                        });
+                    }
+                }
+            } catch (err) {
+                console.error('Erro ao carregar histórico:', err);
             }
         }
 
@@ -427,8 +464,7 @@
             const msgDiv = document.createElement('div');
             msgDiv.className = `message ${side}`;
             const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            // Parse text as markdown immediately for non-streaming messages
-            msgDiv.innerHTML = `${marked.parse(text)}<div class="time">${time}</div>`;
+            msgDiv.innerHTML = `<div class="markdown-content">${marked.parse(text)}</div><div class="time">${time}</div>`;
             chatWindow.appendChild(msgDiv);
             chatWindow.scrollTop = chatWindow.scrollHeight;
             return msgDiv;
@@ -444,15 +480,10 @@
             typingIndicator.style.display = 'block';
 
             const aiMsgDiv = addMessage('', 'ai');
-            // Clear the default innerHTML since we'll use prepend
-            aiMsgDiv.innerHTML = `<div class="time">${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>`;
-
-            const contentSpan = document.createElement('div'); // Use div for blocks (p, ul, etc)
-            contentSpan.className = 'markdown-content';
+            const contentSpan = aiMsgDiv.querySelector('.markdown-content');
             const caretSpan = document.createElement('span');
             caretSpan.className = 'caret';
             aiMsgDiv.prepend(caretSpan);
-            aiMsgDiv.prepend(contentSpan);
 
             let displayBuffer = '';
             let isTyping = false;
@@ -463,32 +494,22 @@
                     isTyping = true;
                     const char = typingQueue.shift();
                     displayBuffer += char;
-
-                    // Render markdown
                     contentSpan.innerHTML = marked.parse(displayBuffer);
 
-                    // Function to find the deepest last element that can contain the caret
                     const getDeepestLastChild = (parent) => {
                         let last = parent.lastElementChild;
-                        if (!last) return parent;
-
-                        // Don't go into elements that shouldn't contain the caret or are empty
-                        if (['BR', 'HR', 'IMG'].includes(last.tagName)) return parent;
-
+                        if (!last || ['BR', 'HR', 'IMG'].includes(last.tagName)) return parent;
                         return getDeepestLastChild(last);
                     };
 
-                    // Attach caret to the deepest last element
                     const target = getDeepestLastChild(contentSpan);
                     target.appendChild(caretSpan);
-
                     chatWindow.scrollTop = chatWindow.scrollHeight;
 
-                    const delay = Math.floor(Math.random() * 10) + 5;
                     setTimeout(() => {
                         isTyping = false;
                         processQueue();
-                    }, delay);
+                    }, 5);
                 } else if (typingQueue.length === 0 && !isTyping && streamEnded) {
                     caretSpan.remove();
                     typingIndicator.style.display = 'none';
@@ -535,26 +556,19 @@
                     for (const line of lines) {
                         if (line.startsWith('data: ')) {
                             const dataStr = line.slice(6).trim();
-                            if (dataStr === '[DONE]') {
-                                continue;
-                            }
+                            if (dataStr === '[DONE]') continue;
                             try {
                                 const data = JSON.parse(dataStr);
                                 if (data.content) {
-                                    // Add characters to the typing queue
-                                    for (const char of data.content) {
-                                        typingQueue.push(char);
-                                    }
+                                    for (const char of data.content) typingQueue.push(char);
                                     processQueue();
-                                } else if (data.error) {
-                                    contentSpan.innerHTML = `<span style="color: red;">Erro: ${data.error}</span>`;
                                 }
                             } catch (e) { }
                         }
                     }
                 }
                 streamEnded = true;
-                processQueue(); // Check if caret needs removal
+                processQueue();
             } catch (err) {
                 contentSpan.innerHTML = `<span style="color: red;">Erro de rede: ${err.message}</span>`;
                 streamEnded = true;

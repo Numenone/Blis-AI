@@ -136,3 +136,39 @@ async def chat_endpoint(request: ChatRequest, fastapi_req: Request, api_key: str
     except Exception as e:
         logger.error(f"event=chat_invocation_error session_id={request.session_id} error={str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+@router.get("/history/{session_id}")
+async def get_chat_history(session_id: str, fastapi_req: Request, api_key: str = Depends(verify_api_key)):
+    try:
+        checkpointer = fastapi_req.app.state.checkpointer
+        config = {"configurable": {"thread_id": session_id}}
+        
+        # Get the latest state from checkpointer
+        state_tuple = await checkpointer.aget_tuple(config)
+        
+        if not state_tuple:
+            return {"messages": []}
+            
+        messages = state_tuple.checkpoint.get("channel_values", {}).get("messages", [])
+        
+        # Format messages for frontend
+        formatted_messages = []
+        for msg in messages:
+            # Handle different message types (HumanMessage, AIMessage, or Dict)
+            content = ""
+            role = "ai"
+            
+            if hasattr(msg, "content"):
+                content = msg.content
+                role = "me" if msg.type == "human" else "ai"
+            elif isinstance(msg, dict):
+                content = msg.get("content", "")
+                # LangGraph serializes messages as dicts with 'type'
+                role = "me" if msg.get("type") == "human" else "ai"
+            
+            if content:
+                formatted_messages.append({"role": role, "content": content})
+                
+        return {"messages": formatted_messages}
+    except Exception as e:
+        logger.error(f"event=history_retrieval_error session_id={session_id} error={str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
