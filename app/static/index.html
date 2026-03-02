@@ -250,6 +250,48 @@
             display: none;
         }
 
+        /* Settings Panel */
+        #settings-panel {
+            background: #f0f2f5;
+            padding: 15px;
+            border-bottom: 1px solid #ddd;
+            display: none;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .settings-row {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .settings-row label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--wa-secondary);
+        }
+
+        .settings-row input,
+        .settings-row select {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 0.85rem;
+        }
+
+        .settings-toggle {
+            cursor: pointer;
+            margin-left: auto;
+            color: white;
+            opacity: 0.8;
+            transition: opacity 0.2s;
+        }
+
+        .settings-toggle:hover {
+            opacity: 1;
+        }
+
         .caret {
             display: inline-block;
             width: 2px;
@@ -293,7 +335,34 @@
                 <h1>Blis AI Assistant</h1>
                 <p>Agente de Viagens (Online)</p>
             </div>
+            <div class="settings-toggle" onclick="toggleSettings()" title="Configurações de IA">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path
+                        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z">
+                    </path>
+                </svg>
+            </div>
         </header>
+
+        <div id="settings-panel">
+            <div style="display: flex; gap: 10px;">
+                <div class="settings-row" style="flex: 1;">
+                    <label>Provedor / Gateway Base URL</label>
+                    <input type="text" id="llm-gateway" placeholder="Ex: https://openrouter.ai/api/v1"
+                        value="https://openrouter.ai/api/v1">
+                </div>
+                <div class="settings-row" style="flex: 1;">
+                    <label>Modelo LLM</label>
+                    <input type="text" id="llm-model" placeholder="Ex: openai/gpt-4o-mini" value="openai/gpt-4o-mini">
+                </div>
+            </div>
+            <div class="settings-row">
+                <label>Gateway API Key (Opcional - usa do servidor se vazio)</label>
+                <input type="password" id="llm-api-key" placeholder="Suas chaves para este gateway...">
+            </div>
+        </div>
 
         <main id="chat-window">
             <!-- Initial message will be handled by JS or kept simple -->
@@ -329,7 +398,23 @@
         const chatWindow = document.getElementById('chat-window');
         const messageInput = document.getElementById('message-input');
         const typingIndicator = document.getElementById('typing-indicator');
+        const settingsPanel = document.getElementById('settings-panel');
         const sessionId = 'session_' + Math.random().toString(36).substr(2, 9);
+
+        // Load saved settings
+        document.getElementById('llm-gateway').value = localStorage.getItem('llm-gateway') || 'https://openrouter.ai/api/v1';
+        document.getElementById('llm-model').value = localStorage.getItem('llm-model') || 'openai/gpt-4o-mini';
+        document.getElementById('llm-api-key').value = localStorage.getItem('llm-api-key') || '';
+
+        function toggleSettings() {
+            settingsPanel.style.display = settingsPanel.style.display === 'flex' ? 'none' : 'flex';
+        }
+
+        function saveSettings() {
+            localStorage.setItem('llm-gateway', document.getElementById('llm-gateway').value);
+            localStorage.setItem('llm-model', document.getElementById('llm-model').value);
+            localStorage.setItem('llm-api-key', document.getElementById('llm-api-key').value);
+        }
 
         function authenticate() {
             apiKey = document.getElementById('api-key-input').value;
@@ -421,9 +506,13 @@
                     body: JSON.stringify({
                         session_id: sessionId,
                         message: text,
-                        stream: true
+                        stream: true,
+                        llm_model: document.getElementById('llm-model').value,
+                        llm_gateway: document.getElementById('llm-gateway').value,
+                        llm_api_key: document.getElementById('llm-api-key').value
                     })
                 });
+                saveSettings();
 
                 if (!response.ok) {
                     const error = await response.json();

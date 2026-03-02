@@ -14,12 +14,18 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 # Provedor de LLM via OpenRouter (para unificar acesso a modelos como GPT-4o, Claude, etc)
-llm = ChatOpenAI(
-    model="openai/gpt-4o-mini", 
-    temperature=0,
-    api_key=settings.openrouter_api_key,
-    base_url="https://openrouter.ai/api/v1"
-)
+def get_llm(state: AgentState):
+    """Initializes LLM dynamically based on state."""
+    model = state.get("llm_model") or "openai/gpt-4o-mini"
+    base_url = state.get("llm_gateway") or "https://openrouter.ai/api/v1"
+    api_key = state.get("llm_api_key") or settings.openrouter_api_key
+    
+    return ChatOpenAI(
+        model=model,
+        temperature=0,
+        api_key=api_key,
+        base_url=base_url
+    )
 
 class RouteDecision(BaseModel):
     destination: Literal["faq_agent", "search_agent"] = Field(
@@ -40,6 +46,8 @@ def route_question(state: AgentState):
         
     question = messages[-1].content
     logger.info(f"event=router_evaluating question='{question[:50]}...'")
+    
+    llm = get_llm(state)
     router_chain = router_prompt | llm.with_structured_output(RouteDecision)
     decision = router_chain.invoke({"question": question})
     

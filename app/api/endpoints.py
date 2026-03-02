@@ -27,14 +27,20 @@ class ChatRequest(BaseModel):
     session_id: str = Field(..., min_length=1, description="Unique identifier for the session to maintain state.")
     message: str = Field(..., min_length=1, description="The user's query or message.")
     stream: bool = Field(default=False, description="Set to true to receive an SSE stream of the response.")
+    llm_model: str = Field(default="openai/gpt-4o-mini", description="LLM model identifier.")
+    llm_gateway: str = Field(default="https://openrouter.ai/api/v1", description="LLM Gateway Base URL.")
+    llm_api_key: str = Field(default="", description="API Key for the chosen LLM gateway. If empty, server defaults are used.")
 
     model_config = {
         "json_schema_extra": {
             "examples": [
                 {
                     "session_id": "test_session_123",
-                    "message": "Qual é a política de bagagem para voos internacionais?",
-                    "stream": False
+                    "message": "Qual é a política de bagagem?",
+                    "llm_model": "openai/gpt-4o-mini",
+                    "llm_gateway": "https://openrouter.ai/api/v1",
+                    "llm_api_key": "sk-or-your-key-here",
+                    "stream": false
                 }
             ]
         }
@@ -50,8 +56,14 @@ async def generate_chat_stream(request: ChatRequest, checkpointer):
     config = {"configurable": {"thread_id": request.session_id}}
     
     try:
+        initial_state = {
+            "messages": [HumanMessage(content=request.message)],
+            "llm_model": request.llm_model,
+            "llm_gateway": request.llm_gateway,
+            "llm_api_key": request.llm_api_key
+        }
         async for event in graph.astream_events(
-            {"messages": [HumanMessage(content=request.message)]},
+            initial_state,
             config=config,
             version="v2"
         ):
@@ -106,8 +118,14 @@ async def chat_endpoint(request: ChatRequest, fastapi_req: Request, api_key: str
         config = {"configurable": {"thread_id": request.session_id}}
         
         # Invoke graph asynchronously
+        initial_state = {
+            "messages": [HumanMessage(content=request.message)],
+            "llm_model": request.llm_model,
+            "llm_gateway": request.llm_gateway,
+            "llm_api_key": request.llm_api_key
+        }
         result = await graph.ainvoke(
-            {"messages": [HumanMessage(content=request.message)]},
+            initial_state,
             config=config
         )
         

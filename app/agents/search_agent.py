@@ -9,23 +9,25 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Initialize LLM via OpenRouter and tools
-llm = ChatOpenAI(
-    model="openai/gpt-4o-mini", 
-    temperature=0,
-    api_key=settings.openrouter_api_key,
-    base_url="https://openrouter.ai/api/v1"
-)
-search_tool = TavilySearchResults(max_results=3, tavily_api_key=settings.tavily_api_key)
-
-# Create a prebuilt ReAct agent that can use tools
-system_prompt = SEARCH_SYSTEM_PROMPT
-
-react_agent = create_react_agent(
-    llm,
-    tools=[search_tool],
-    prompt=system_prompt
-)
+def get_react_agent(state: AgentState):
+    """Initializes ReAct agent dynamically."""
+    model = state.get("llm_model") or "openai/gpt-4o-mini"
+    base_url = state.get("llm_gateway") or "https://openrouter.ai/api/v1"
+    api_key = state.get("llm_api_key") or settings.openrouter_api_key
+    
+    llm = ChatOpenAI(
+        model=model,
+        temperature=0,
+        api_key=api_key,
+        base_url=base_url
+    )
+    search_tool = TavilySearchResults(max_results=3, tavily_api_key=settings.tavily_api_key)
+    
+    return create_react_agent(
+        llm,
+        tools=[search_tool],
+        prompt=SEARCH_SYSTEM_PROMPT
+    )
 
 def search_node(state: AgentState):
     """Node to handle search queries using a ReAct agent."""
@@ -37,6 +39,7 @@ def search_node(state: AgentState):
     logger.info(f"event=search_node_started question='{question[:50]}...'")
     
     # Invoke the ReAct agent with the current conversation history
+    react_agent = get_react_agent(state)
     result = react_agent.invoke({"messages": messages})
     
     # Extract only the newly generated messages to append to the state

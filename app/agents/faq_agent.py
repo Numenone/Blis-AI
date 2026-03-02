@@ -11,12 +11,27 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Embeddings via OpenRouter
-embeddings = OpenAIEmbeddings(
-    model="openai/text-embedding-3-small",
-    api_key=settings.openrouter_api_key,
-    base_url="https://openrouter.ai/api/v1"
-)
+def get_embeddings(state: AgentState):
+    """Initializes embeddings dynamically."""
+    api_key = state.get("llm_api_key") or settings.openrouter_api_key
+    base_url = state.get("llm_gateway") or "https://openrouter.ai/api/v1"
+    return OpenAIEmbeddings(
+        model="openai/text-embedding-3-small",
+        api_key=api_key,
+        base_url=base_url
+    )
+
+def get_llm(state: AgentState):
+    """Initializes LLM dynamically."""
+    model = state.get("llm_model") or "openai/gpt-4o-mini"
+    base_url = state.get("llm_gateway") or "https://openrouter.ai/api/v1"
+    api_key = state.get("llm_api_key") or settings.openrouter_api_key
+    return ChatOpenAI(
+        model=model,
+        temperature=0,
+        api_key=api_key,
+        base_url=base_url
+    )
 
 def get_retriever():
     # If Supabase is configured, use it
@@ -37,13 +52,7 @@ def get_retriever():
     
     return None
 
-# LLM via OpenRouter
-llm = ChatOpenAI(
-    model="openai/gpt-4o-mini", 
-    temperature=0,
-    api_key=settings.openrouter_api_key,
-    base_url="https://openrouter.ai/api/v1"
-)
+# Removed global llm
 
 FAQ_PROMPT = ChatPromptTemplate.from_messages([
     ("system", FAQ_SYSTEM_PROMPT),
@@ -59,8 +68,31 @@ def faq_node(state: AgentState):
     question = messages[-1].content
     logger.info(f"event=faq_node_started question='{question[:50]}...'")
     
-    retriever = get_retriever()
+    llm = get_llm(state)
     chain = FAQ_PROMPT | llm
+    
+    # Use dynamic embeddings for retriever if needed
+    def get_retriever_with_state(state):
+        emb = get_embeddings(state)
+        # If Supabase is configured, use it
+        if settings.supabase_url and settings.supabase_service_key:
+            supabase: Client = create_client(settings.supabase_url, settings.supabase_service_key)
+            vectorstore = SupabaseVectorStore(
+                client=supabase,
+                embedding=emb,
+                table_name="documents",
+                query_name="match_documents"
+            )
+            return vectorstore.as_retriever(search_kwargs={"k": 3})
+        
+        # Fallback to local Chroma
+        if os.path.exists("data/chroma"):
+            vectorstore = Chroma(persist_directory="data/chroma", embedding_function=emb)
+            return vectorstore.as_retriever(search_kwargs={"k": 3})
+        
+        return None
+
+    retriever = get_retriever_with_state(state)
     
     if not retriever:
         logger.warning("event=faq_node_fallback reason='No vector store available' action='using direct LLM with security prompt'")

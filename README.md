@@ -18,6 +18,7 @@ O projeto foi construído utilizando **FastAPI** e **LangGraph**, seguindo um fl
 
 ## 🚀 Funcionalidades Principais
 
+*   **⚙️ Escolha Dinâmica de IA**: Interface para trocar o gateway (OpenRouter, OpenAI, Local), o modelo e a chave de API sem reiniciar o servidor.
 *   **💬 Painel de Atendimento (`/painel`)**: Interface moderna inspirada no WhatsApp, com suporte completo a **Markdown**, links clicáveis e uma animação de digitação humana com cursor interativo.
 *   **⚡ Streaming de Respostas (SSE)**: As respostas são geradas caractere por caractere, reduzindo a latência percebida e tornando a interação mais dinâmica.
 *   **🔒 Segurança de Elite**: Autenticação via `X-API-Key` e proteção contra vazamento de dados internos de código ou arquivos.
@@ -50,6 +51,18 @@ uvicorn app.main:app --reload
 *   **Swagger UI (`/docs`)**: Documentação interativa de todos os endpoints. Use o token de autorização `blis_secret_token_123` para testar.
 *   **Chat Endpoint (`POST /chat`)**: Recebe `session_id` e `message`. Suporta streaming via cabeçalho `Accept: text/event-stream`.
 *   **Painel de Chat (`/painel`)**: Acesso visual para interagir com a IA diretamente pelo navegador.
+
+---
+
+## ⚙️ Configuração Dinâmica (LLM Tooling)
+
+Este projeto permite que você teste diferentes modelos e provedores em tempo real através da UI ou da API:
+
+1.  **No Painel (`/painel`)**: Clique no ícone de **engrenagem** no topo. Você poderá inserir o endpoint do seu provedor (ex: `https://api.openai.com/v1` ou localmente via Ollama), o nome do modelo e sua chave pessoal.
+2.  **No Swagger (`/docs`)**: O endpoint `POST /chat` agora aceita os campos opcionais:
+    *   `llm_model`: O ID do modelo (ex: `anthropic/claude-3.5-sonnet`).
+    *   `llm_gateway`: A URL base do provedor.
+    *   `llm_api_key`: Sua chave de API privada para aquele provedor.
 
 ---
 
