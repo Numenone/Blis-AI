@@ -22,7 +22,7 @@ def get_react_agent(state: AgentState):
         base_url=base_url,
         streaming=True
     )
-    search_tool = TavilySearch(max_results=3, api_key=settings.tavily_api_key)
+    search_tool = TavilySearch(max_results=3, tavily_api_key=settings.tavily_api_key)
     
     return create_react_agent(
         llm,
