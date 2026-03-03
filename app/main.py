@@ -5,6 +5,9 @@ from fastapi import FastAPI, Request
 import redis.asyncio as redis
 from app.api.endpoints import router as api_router
 from app.core.config import settings
+from langchain_openai import OpenAIEmbeddings
+from langchain_chroma import Chroma
+import os
 
 # Setup structured logging
 logging.basicConfig(
@@ -19,7 +22,8 @@ async def lifespan(app: FastAPI):
     try:
         from app.core.redis_checkpointer import AsyncStandardRedisSaver
         from langchain_openai import OpenAIEmbeddings
-        from langchain_community.vectorstores import Chroma, SupabaseVectorStore
+        from langchain_community.vectorstores import SupabaseVectorStore
+        from langchain_chroma import Chroma
         from supabase.client import Client, create_client
         
         # 1. Initialize Redis Checkpointer
@@ -39,6 +43,8 @@ async def lifespan(app: FastAPI):
         # 3. Cache VectorStore/Retriever
         retriever = None
         if settings.supabase_url and settings.supabase_service_key:
+            from supabase.client import Client, create_client
+            from langchain_community.vectorstores import SupabaseVectorStore
             supabase: Client = create_client(settings.supabase_url, settings.supabase_service_key)
             vectorstore = SupabaseVectorStore(
                 client=supabase,
@@ -49,9 +55,12 @@ async def lifespan(app: FastAPI):
             retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
             logger.info("Retriever initialized (Supabase)")
         elif os.path.exists("data/chroma"):
-            vectorstore = Chroma(persist_directory="data/chroma", embedding_function=embeddings)
-            retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
-            logger.info("Retriever initialized (Chroma)")
+            try:
+                vectorstore = Chroma(persist_directory="data/chroma", embedding_function=embeddings)
+                retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+                logger.info("Retriever initialized (Chroma)")
+            except Exception as chroma_err:
+                logger.error(f"Failed to initialize Chroma: {chroma_err}")
         
         app.state.retriever = retriever
         
@@ -74,6 +83,12 @@ from fastapi.responses import JSONResponse, FileResponse
 import os
 
 from app.core.redis_checkpointer import AsyncStandardRedisSaver
+from pydantic import BaseModel, Field
+
+class HealthResponse(BaseModel):
+    status: str = Field(..., description="Overall system status.")
+    redis_connected: bool = Field(..., description="Whether the Redis checkpointer is successfully connected.")
+    checkpointer_type: str = Field(..., description="The class type of the active checkpointer.")
 
 app = FastAPI(
     title="Blis AI - Multi-agent Travel Chatbot",
@@ -82,8 +97,14 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-@app.get("/health")
+@app.get(
+    "/health",
+    response_model=HealthResponse,
+    summary="Verificar integridade do sistema",
+    description="Retorna o status atual da API e confirma se o checkpointer do Redis está operacional."
+)
 async def health_check():
+    """Confirma se o serviço está online e conectado ao Redis."""
     checkpointer = getattr(app.state, "checkpointer", None)
     return {
         "status": "ok",
@@ -91,8 +112,13 @@ async def health_check():
         "checkpointer_type": str(type(checkpointer))
     }
 
-@app.get("/painel")
+@app.get(
+    "/painel",
+    summary="Acessar o Painel de Controle (Frontend)",
+    description="Serve o arquivo index.html estático que contém a interface do chat e dashboard."
+)
 async def get_painel():
+    """Retorna a interface visual do Blis AI."""
     static_file = os.path.join(os.path.dirname(__file__), "static", "index.html")
     return FileResponse(static_file)
 

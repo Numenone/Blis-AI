@@ -51,6 +51,27 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response: str = Field(..., description="The AI's generated response (only used when stream=false).")
 
+class UploadResponse(BaseModel):
+    status: str = Field(..., description="Status of the upload (success/error).")
+    filename: str = Field(..., description="Name of the uploaded file.")
+    chunks: int = Field(..., description="Number of text chunks created from the document.")
+    message: str = Field(..., description="Human-readable status message.")
+
+class DocumentListResponse(BaseModel):
+    documents: list[str] = Field(..., description="List of unique document filenames ingested into the vector store.")
+    error: str = Field(default=None, description="Optional error message if listing fails.")
+
+class DeleteResponse(BaseModel):
+    status: str = Field(..., description="Status of the deletion (success/error).")
+    message: str = Field(..., description="Human-readable status message.")
+
+class HistoryMessage(BaseModel):
+    role: str = Field(..., description="Role of the message sender (me/ai).")
+    content: str = Field(..., description="The content of the message.")
+
+class HistoryResponse(BaseModel):
+    messages: list[HistoryMessage] = Field(..., description="List of formatted chat history messages.")
+
 async def generate_chat_stream(request: ChatRequest, fastapi_req: Request, checkpointer):
     """Generator for Server-Sent Events (SSE)."""
     logger.info(f"event=sse_stream_started session_id={request.session_id}")
@@ -155,7 +176,12 @@ async def chat_endpoint(request: ChatRequest, fastapi_req: Request, api_key: str
     except Exception as e:
         logger.error(f"event=chat_invocation_error session_id={request.session_id} error={str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-@router.post("/api/upload", summary="Enviar documento para alimentar a IA (RAG)")
+@router.post(
+    "/api/upload", 
+    response_model=UploadResponse,
+    summary="Enviar documento para alimentar a IA (RAG)",
+    description="Processa um arquivo (PDF, Markdown ou Excel), divide em pedaços (chunks) e os insere no banco de vetores ChromaDB para consulta posterior pelos agentes."
+)
 async def upload_document(
     fastapi_req: Request,
     file: UploadFile = File(...),
@@ -177,7 +203,7 @@ async def upload_document(
         # Import standard RAG tools
         from langchain_community.document_loaders import PyPDFLoader, TextLoader
         from langchain_text_splitters import RecursiveCharacterTextSplitter
-        from langchain_community.vectorstores import Chroma
+        from langchain_chroma import Chroma
         from langchain_core.documents import Document
 
         documents = []
@@ -238,11 +264,16 @@ async def upload_document(
     finally:
         shutil.rmtree(temp_dir)
 
-@router.get("/api/documents", summary="Listar documentos ingeridos")
+@router.get(
+    "/api/documents", 
+    response_model=DocumentListResponse,
+    summary="Listar documentos ingeridos",
+    description="Retorna uma lista de nomes de arquivos únicos que foram processados e estão disponíveis no banco de vetores."
+)
 async def list_documents(fastapi_req: Request, api_key: str = Depends(verify_api_key)):
     """Retorna uma lista de nomes de arquivos únicos presentes no ChromaDB."""
     try:
-        from langchain_community.vectorstores import Chroma
+        from langchain_chroma import Chroma
         embeddings = getattr(fastapi_req.app.state, "embeddings", None)
         persist_directory = "data/chroma"
         
@@ -253,7 +284,8 @@ async def list_documents(fastapi_req: Request, api_key: str = Depends(verify_api
         
         # Get all metadata from the collection
         collection = vectorstore._collection
-        metadata = collection.get(include=['metadatas'])['metadatas']
+        get_result = collection.get(include=['metadatas'])
+        metadata = get_result['metadatas'] if 'metadatas' in get_result else []
         
         # Extract unique sources
         sources = set()
@@ -268,11 +300,16 @@ async def list_documents(fastapi_req: Request, api_key: str = Depends(verify_api
         logger.error(f"event=list_documents_error error={str(e)}")
         return {"documents": [], "error": str(e)}
 
-@router.delete("/api/documents/{filename}", summary="Excluir um documento")
+@router.delete(
+    "/api/documents/{filename}", 
+    response_model=DeleteResponse,
+    summary="Excluir um documento",
+    description="Remove todos os vetores associados a um arquivo específico do banco de vetores ChromaDB."
+)
 async def delete_document(filename: str, fastapi_req: Request, api_key: str = Depends(verify_api_key)):
     """Remove todos os chunks de um documento específico do ChromaDB."""
     try:
-        from langchain_community.vectorstores import Chroma
+        from langchain_chroma import Chroma
         embeddings = getattr(fastapi_req.app.state, "embeddings", None)
         persist_directory = "data/chroma"
         
@@ -304,7 +341,12 @@ async def delete_document(filename: str, fastapi_req: Request, api_key: str = De
         logger.error(f"event=delete_document_error filename={filename} error={str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/api/history/{session_id}")
+@router.get(
+    "/api/history/{session_id}",
+    response_model=HistoryResponse,
+    summary="Recuperar o histórico do chat",
+    description="Busca todas as mensagens trocadas em uma sessão específica (thread_id) do checkpointer do LangGraph."
+)
 async def get_chat_history(session_id: str, fastapi_req: Request, api_key: str = Depends(verify_api_key)):
     checkpointer = getattr(fastapi_req.app.state, "checkpointer", None)
     logger.info(f"get_chat_history: session_id={session_id} cp_type={type(checkpointer)}")

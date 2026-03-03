@@ -1,4 +1,4 @@
-from langchain_community.tools.tavily_search import TavilySearchResults
+from langchain_tavily import TavilySearch
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 from app.agents.state import AgentState
@@ -22,7 +22,7 @@ def get_react_agent(state: AgentState):
         base_url=base_url,
         streaming=True
     )
-    search_tool = TavilySearchResults(max_results=3, tavily_api_key=settings.tavily_api_key)
+    search_tool = TavilySearch(max_results=3, api_key=settings.tavily_api_key)
     
     return create_react_agent(
         llm,

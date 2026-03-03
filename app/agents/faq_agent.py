@@ -1,4 +1,4 @@
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma
 from langchain_community.vectorstores import SupabaseVectorStore
 from supabase.client import Client, create_client
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
@@ -82,7 +82,6 @@ async def faq_node(state: AgentState, config: RunnableConfig):
     if not retriever:
         # Fallback to dynamic initialization if not in cache (though we want to avoid this)
         logger.debug("event=faq_node_cache_miss action='dynamic_init'")
-        from app.agents.faq_agent import get_retriever_with_state # Use the one inside the node if needed or refactor
         
         def get_retriever_fallback(state):
             emb = get_embeddings(state)
