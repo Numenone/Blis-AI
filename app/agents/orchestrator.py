@@ -1,7 +1,7 @@
-from typing import Literal
+from typing import Literal, TypedDict, Annotated
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from pydantic import BaseModel, Field
+from pydantic import Field
 from langgraph.graph import StateGraph, START, END
 from app.agents.state import AgentState
 from app.agents.faq_agent import faq_node
@@ -28,10 +28,19 @@ def get_llm(state: AgentState):
         streaming=True
     )
 
-class RouteDecision(BaseModel):
-    destination: Literal["faq_agent", "search_agent"] = Field(
-        description="Destino para a pergunta. 'faq_agent' para políticas de bagagem, check-in, documentação e regras. 'search_agent' para passagens, conexões, hotéis, clima atual, e dados em tempo real."
-    )
+ROUTE_SCHEMA = {
+    "title": "RouteDecision",
+    "description": "Decide o destino da pergunta do usuário.",
+    "type": "object",
+    "properties": {
+        "destination": {
+            "type": "string",
+            "enum": ["faq_agent", "search_agent"],
+            "description": "faq_agent para políticas, search_agent para busca externa."
+        }
+    },
+    "required": ["destination"]
+}
 
 router_prompt = ChatPromptTemplate.from_messages([
     ("system", ROUTER_SYSTEM_PROMPT),
@@ -54,11 +63,22 @@ async def route_question(state: AgentState, config: RunnableConfig):
     history = messages[:-1]
     
     llm = get_llm(state)
-    router_chain = router_prompt | llm.with_structured_output(RouteDecision)
+    router_chain = router_prompt | llm.with_structured_output(ROUTE_SCHEMA)
     decision = await router_chain.ainvoke({"question": question, "history": history}, config=config)
     
-    logger.info(f"event=router_decision destination={decision.destination}")
-    return {"next_node": decision.destination}
+    # Robust parsing for JSON schema output (handles direct and nested structures)
+    destination = None
+    if isinstance(decision, dict):
+        destination = decision.get("destination")
+        if not destination and isinstance(decision.get("properties"), dict):
+            destination = decision["properties"].get("destination")
+    
+    if not destination:
+        logger.warning(f"event=router_structure_unexpected decision={decision}")
+        destination = "faq_agent" # Default
+    
+    logger.info(f"event=router_decision destination={destination}")
+    return {"next_node": destination}
 
 def router_edge(state: AgentState) -> str:
     """Conditional edge based on the routing decision."""
