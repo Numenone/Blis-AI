@@ -2,7 +2,7 @@ from langchain_chroma import Chroma
 from langchain_community.vectorstores import SupabaseVectorStore
 from supabase.client import Client, create_client
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from app.agents.state import AgentState
 from app.agents.prompts import FAQ_SYSTEM_PROMPT
 from app.core.config import settings
@@ -57,6 +57,7 @@ def get_retriever():
 
 FAQ_PROMPT = ChatPromptTemplate.from_messages([
     ("system", FAQ_SYSTEM_PROMPT),
+    MessagesPlaceholder(variable_name="history"),
     ("human", "{question}")
 ])
 
@@ -94,16 +95,18 @@ async def faq_node(state: AgentState, config: RunnableConfig):
             
         retriever = get_retriever_fallback(state)
     
+    history = messages[:-1]
+    
     if not retriever:
         logger.warning("event=faq_node_fallback reason='No vector store available' action='using direct LLM with security prompt'")
-        response = await chain.ainvoke({"context": "Nenhum contexto interno disponível no momento. Use apenas conhecimento de viagens e sua trava de segurança.", "question": question}, config=config)
+        response = await chain.ainvoke({"context": "Nenhum contexto interno disponível no momento. Use apenas conhecimento de viagens e sua trava de segurança.", "question": question, "history": history}, config=config)
         return {"messages": [response]}
         
     docs = await retriever.ainvoke(question, config=config)
     logger.info(f"event=faq_node_retrieved_docs count={len(docs)}")
     context = "\n\n".join(doc.page_content for doc in docs)
     
-    response = await chain.ainvoke({"context": context, "question": question}, config=config)
+    response = await chain.ainvoke({"context": context, "question": question, "history": history}, config=config)
     logger.info(f"event=faq_node_completed")
     
     return {"messages": [response]}

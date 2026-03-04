@@ -1,6 +1,6 @@
 from typing import Literal
 from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from pydantic import BaseModel, Field
 from langgraph.graph import StateGraph, START, END
 from app.agents.state import AgentState
@@ -35,6 +35,7 @@ class RouteDecision(BaseModel):
 
 router_prompt = ChatPromptTemplate.from_messages([
     ("system", ROUTER_SYSTEM_PROMPT),
+    MessagesPlaceholder(variable_name="history"),
     ("human", "{question}"),
 ])
 
@@ -50,9 +51,11 @@ async def route_question(state: AgentState, config: RunnableConfig):
     question = messages[-1].content
     logger.info(f"event=router_evaluating question='{question[:50]}...'")
     
+    history = messages[:-1]
+    
     llm = get_llm(state)
     router_chain = router_prompt | llm.with_structured_output(RouteDecision)
-    decision = await router_chain.ainvoke({"question": question}, config=config)
+    decision = await router_chain.ainvoke({"question": question, "history": history}, config=config)
     
     logger.info(f"event=router_decision destination={decision.destination}")
     return {"next_node": decision.destination}
